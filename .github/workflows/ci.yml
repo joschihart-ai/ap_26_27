@@ -1,0 +1,63 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - "**"
+  pull_request:
+
+env:
+  TEXLIVE_VERSION: 2026
+  TERM: xterm
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    if: github.event.repository.name == 'toolbox-workshop-protocol-template'
+
+    defaults:
+      run:
+        # We need login shells (-l) for micromamba to work.
+        shell: bash -leo pipefail {0}
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup Mamba
+        uses: mamba-org/setup-micromamba@f457c30a868e4760d3a6fcea5f25dc655b8edf39 # v3.2.1
+        with:
+          environment-file: environment.yml
+          post-cleanup: 'all'
+
+      - name: Setup
+        run: |
+          pip install install-texlive
+          curl -fLO https://raw.githubusercontent.com/pep-dortmund/toolbox-workshop/main/tex-packages.txt
+          python -m install_texlive -p $HOME/texlive -t $TEXLIVE_VERSION --collections='-a' --package-file tex-packages.txt --update -v
+
+          # add to path for following steps
+          echo "$HOME/texlive/$TEXLIVE_VERSION/bin/x86_64-linux" >> $GITHUB_PATH
+          export PATH="$HOME/texlive/$TEXLIVE_VERSION/bin/x86_64-linux:$PATH"
+
+          # generate the lualatex font cache, otherwise it is done in parallel when calling make
+          luaotfload-tool --update --force
+
+      - name: Check Setup
+        run: |
+          echo "which python"
+          which python
+          echo "python --version"
+          python --version
+          echo "conda list"
+          conda list
+
+      - name: Build
+        run: |
+          make -j 2
+
+      - name: check for errors
+        if: always()
+        run: "! grep -R --include='*.log' '^!' -A 5 -B 5"
